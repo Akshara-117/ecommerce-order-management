@@ -19,7 +19,7 @@ A Java 17 and Spring Boot REST API for managing products, customers, shopping ca
 - Add products to a customer's cart with quantity and stock checks
 - Check out a cart, calculate order totals, and reduce inventory
 - Clear cart items after successful checkout
-- Retrieve basic customer order history
+- Retrieve customer order history with SQL-level customer filtering and an index on `(customer_id, created_at DESC)`
 - Transactional checkout with `@Transactional`; product entity versioning for optimistic-locking support
 
 ## Architecture
@@ -155,6 +155,21 @@ The `OrderServiceTest` suite uses Mockito to isolate service logic from the data
 
 These are unit tests, not database-backed integration tests or concurrency tests.
 
+## Order-history query optimization
+
+The customer order-history endpoint now filters by customer in the repository instead of loading every order and filtering in Java. The `CustomerOrder` entity also declares a composite index on `(customer_id, created_at DESC)` to support filtering and descending date order. Verify index creation in MySQL after application startup; schema updates depend on the configured Hibernate DDL behavior.
+
+**Isolated local benchmark (October 27, 2026):** In a separate `ecommerce_benchmark` database containing 100 customers and 10,000 orders, MySQL `EXPLAIN ANALYZE` reported:
+
+| Query / index strategy | Observed execution time |
+| --- | --- |
+| Full table scan, all 10,000 orders | 4.57 ms (single run) |
+| Customer-ID index, 100 matching orders | 0.261 ms (single run) |
+| Customer-ID index plus sort, three-run average | 0.330 ms |
+| Composite customer/date index, three-run average | 0.144 ms |
+
+The composite index removed the explicit sorting step and reduced **observed query execution time by approximately 56.5%** compared with the single-column index in the three-run sample. This is a small local SQL benchmark, **not** an API latency or production performance claim. The benchmark database is separate from `ecommerce_db`.
+
 ## Known limitations and future improvements
 
 - No authentication or authorization; do not expose the API publicly
@@ -163,6 +178,6 @@ These are unit tests, not database-backed integration tests or concurrency tests
 - Improve error response consistency and HTTP status handling
 - Introduce request/response DTOs instead of exposing persistence entities directly
 - Add pagination, cart item update/removal, and OpenAPI documentation
-- Improve order-history query efficiency and avoid in-memory filtering
+- Add pagination and database-backed integration tests for order-history queries
 
 **Security note:** This is a learning/portfolio project. Use only test customer data and local development credentials.
