@@ -26,10 +26,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/products", "/api/products/*").permitAll()
                 .requestMatchers("/api/customers/{id}/**").access((authentication, context) -> {
-                    var auth = authentication.get();
+                    var currentAuthentication = authentication.get();
                     String customerId = context.getVariables().get("id");
-                    boolean allowed = auth != null && auth.isAuthenticated()
-                        && auth.getPrincipal() instanceof Jwt jwt
+                    boolean allowed = currentAuthentication != null && currentAuthentication.isAuthenticated()
+                        && currentAuthentication.getPrincipal() instanceof Jwt jwt
                         && jwt.getSubject().equals(customerId);
                     return new org.springframework.security.authorization.AuthorizationDecision(allowed);
                 })
