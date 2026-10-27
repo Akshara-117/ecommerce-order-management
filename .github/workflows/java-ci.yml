@@ -26,5 +26,7 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Run unit tests
+      - name: Run unit and integration tests
+        env:
+          JWT_SECRET: ci-test-secret-at-least-32-characters-long
         run: mvn --batch-mode --no-transfer-progress clean test
