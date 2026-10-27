@@ -55,7 +55,7 @@ class SecurityConfigIntegrationTest {
             .readTree(registered).get("customerId").asLong();
         String token = com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
             .readTree(mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"security-test@example.com\",\"password\":\"password123\"}"))
+                .content("{\"email\":\"" + email + "\",\"password\":\"password123\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
             .get("accessToken").asText();
         mvc.perform(get("/api/customers/" + customerId + "/orders")
