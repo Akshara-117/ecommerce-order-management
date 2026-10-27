@@ -1,183 +1,127 @@
 # E-Commerce Order Management System
 
-A Java 17 and Spring Boot REST API for managing products, customers, shopping carts, orders, and inventory with MySQL.
+A Java 17 / Spring Boot 3.3.5 REST API demonstrating e-commerce workflows, JWT authentication, relational persistence, automated tests, CI, and Docker packaging.
 
-> **Project status:** Working local portfolio backend. The purchase flow was manually verified against a running MySQL instance on October 27, 2026, and 10 JUnit/Mockito unit tests passed locally. This is not a production-ready or publicly deployed service.
+**Status:** Local portfolio project, not a production deployment. The Docker image, MySQL connection, products API, and Swagger UI were manually verified on October 27, 2026.
 
 ## Tech stack
 
-- **Backend:** Java 17, Spring Boot 3.3.5, Spring Web
-- **Persistence:** Spring Data JPA / Hibernate, MySQL 8
-- **Validation:** Jakarta Bean Validation
-- **Testing:** JUnit 5, Mockito, Maven
-- **Optional local database:** Docker Compose with MySQL 8.4
+- Java 17, Spring Boot 3.3.5, Maven
+- Spring Web, Spring Data JPA / Hibernate, Jakarta Validation
+- Spring Security, OAuth2 Resource Server / JOSE, HS256 JWT, BCrypt
+- MySQL 8; H2 for isolated integration tests
+- JUnit 5, Mockito, MockMvc
+- Springdoc OpenAPI / Swagger UI
+- Docker multi-stage build; GitHub Actions CI
 
 ## Features
 
-- Create, list, retrieve, update, and delete products
-- Register customers with validated name and email
-- Add products to a customer's cart with quantity and stock checks
-- Check out a cart, calculate order totals, and reduce inventory
-- Clear cart items after successful checkout
-- Retrieve customer order history with SQL-level customer filtering and an index on `(customer_id, created_at DESC)`
-- Transactional checkout with `@Transactional`; product entity versioning for optimistic-locking support
+- Product CRUD, customer registration, cart management, transactional checkout, inventory deduction, and order history
+- Customer email/password registration and login; BCrypt password hashes stored in a separate credential table
+- One-hour signed JWT access tokens and customer ownership authorization
+- Customer-specific order history, newest first, with optional pagination and bounded page sizes
+- Repository-level filtering and composite index on `(customer_id, created_at DESC)`
+- Consistent 400/404 API error handling; stock validation and optimistic-locking support
+- OpenAPI documentation and a non-root Docker runtime image
 
 ## Architecture
 
 ```text
-HTTP Client (PowerShell / Postman / curl)
-               |
-               v
-     StoreController (/api)
-               |
-               v
-    OrderService (business rules)
-               |
-               v
-   Spring Data JPA Repositories
-               |
-               v
-          MySQL Database
+HTTP / Swagger
+     |
+Spring Security (JWT validation + authorization)
+     |
+REST Controllers -> Services (business logic, transactions)
+     |
+Spring Data JPA Repositories
+     |
+MySQL
 ```
 
-Product and customer endpoints also use repositories directly from the controller. Entity objects are currently returned directly in API responses.
+## Local setup
 
-## Requirements
+Requirements: JDK 17+, Maven 3.9+, and MySQL 8. Create a development database, for example `ecommerce_db`.
 
-- JDK 17+
-- Maven 3.9+
-- MySQL server **or** Docker Compose
-
-## Run locally
-
-### Option A: Existing MySQL server (Windows PowerShell)
-
-Create an empty database with your MySQL client:
-
-```sql
-CREATE DATABASE IF NOT EXISTS ecommerce_db;
-```
-
-In PowerShell, from the folder containing `pom.xml`, set connection details **for the current terminal session**:
+In Windows PowerShell, from the directory containing `pom.xml`:
 
 ```powershell
 $env:DB_URL = "jdbc:mysql://localhost:3306/ecommerce_db"
 $env:DB_USER = "root"
-$env:DB_PASSWORD = Read-Host "Enter MySQL password"
+$env:DB_PASSWORD = Read-Host "MySQL password"
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$env:JWT_SECRET = [Convert]::ToBase64String($bytes)
+$rng.Dispose()
 mvn spring-boot:run
 ```
 
-Use your own database username where appropriate. Do **not** commit passwords or local environment files to GitHub.
+The API is available at `http://localhost:8080`; Swagger UI is at `http://localhost:8080/swagger-ui/index.html`. Secrets are environment variables, not committed configuration. Generating a new JWT secret invalidates tokens issued with a previous secret.
 
-### Option B: Docker Compose
+### Docker image (using an existing MySQL server on Windows)
 
-If Docker Desktop is installed and port 3306 is free:
+Build:
 
-```bash
-docker compose up -d
-mvn spring-boot:run
+```powershell
+docker build -t ecommerce-order-management:1.0 .
 ```
 
-The Compose configuration provides a local development MySQL database named `ecommerce` with matching default credentials in `application.properties`. These are **development-only example credentials** and must not be used for a public deployment.
+With `DB_PASSWORD` and `JWT_SECRET` set in the **same PowerShell session**, run:
 
-The API listens on **http://localhost:8080**. The root URL `/` is not mapped; use `/api/products` to check the API.
+```powershell
+docker run --name ecommerce-app `
+  -p 8081:8080 `
+  -e DB_URL="jdbc:mysql://host.docker.internal:3306/ecommerce_db" `
+  -e DB_USER="root" `
+  -e DB_PASSWORD="$env:DB_PASSWORD" `
+  -e JWT_SECRET="$env:JWT_SECRET" `
+  ecommerce-order-management:1.0
+```
 
-## API reference
+The Dockerized API is at `http://localhost:8081/api/products` and Swagger UI is at `http://localhost:8081/swagger-ui/index.html`. Port 8081 avoids conflicts with a locally running Spring Boot server on port 8080. `host.docker.internal` refers to the Windows host from inside Docker Desktop.
 
-| Method | Endpoint | Purpose |
+**Data safety:** This configuration connects to your existing MySQL database. Hibernate currently uses `ddl-auto=update`, which can change schema on startup. Back up important data before running against an existing database. The repository's `docker-compose.yml` is a separate, development-only MySQL service; do not start it when host port 3306 is already occupied. Do not commit passwords or JWT secrets.
+
+## API overview
+
+| Method | Path | Access |
 | --- | --- | --- |
-| GET | `/api/products` | List products |
-| POST | `/api/products` | Create product |
-| GET | `/api/products/{id}` | Retrieve product |
-| PUT | `/api/products/{id}` | Update product |
-| DELETE | `/api/products/{id}` | Delete product |
-| POST | `/api/customers` | Register customer |
-| GET | `/api/customers/{id}/cart` | View cart |
-| POST | `/api/customers/{id}/cart` | Add cart item |
-| POST | `/api/customers/{id}/checkout` | Place order |
-| GET | `/api/customers/{id}/orders` | View order history |
+| POST | `/api/auth/register` | Public; create customer credentials |
+| POST | `/api/auth/login` | Public; obtain bearer JWT |
+| GET | `/api/products` | Public |
+| GET | `/api/products/{id}` | Public |
+| GET | `/api/customers/{id}/cart` | JWT for matching customer |
+| POST | `/api/customers/{id}/cart` | JWT for matching customer |
+| POST | `/api/customers/{id}/checkout` | JWT for matching customer |
+| GET | `/api/customers/{id}/orders` | JWT for matching customer |
+| GET | `/api/customers/{id}/orders/paged?page=0&size=10` | JWT for matching customer |
 
-### Example: End-to-end purchase flow (PowerShell)
+Product mutation routes and the legacy customer-creation route may exist in controllers, but **are intentionally denied by the current security configuration** until administrative roles are implemented. Other unmatched routes are denied by default.
 
-Run these commands while the server is running. The IDs below assume a fresh database; use IDs returned by your API otherwise.
+Register/login requests use JSON; login accepts `email` and `password`. Use the returned `accessToken` in `Authorization: Bearer <token>` for protected endpoints. JWT subject must match the customer ID in the path. Do not paste real tokens into issues or public documentation.
 
-**1. Create a product**
-
-```powershell
-$product = @{ name = "Laptop"; price = 999.99; stock = 10 } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:8080/api/products" -Method Post -ContentType "application/json" -Body $product
-```
-
-**2. Register a customer**
-
-```powershell
-$customer = @{ name = "Test Customer"; email = "testcustomer@example.com" } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:8080/api/customers" -Method Post -ContentType "application/json" -Body $customer
-```
-
-**3. Add two units to the cart**
-
-```powershell
-$cart = @{ productId = 1; quantity = 2 } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:8080/api/customers/1/cart" -Method Post -ContentType "application/json" -Body $cart
-```
-
-**4. Check out and verify inventory**
-
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/customers/1/checkout" -Method Post
-Invoke-RestMethod -Uri "http://localhost:8080/api/products/1" -Method Get
-Invoke-RestMethod -Uri "http://localhost:8080/api/customers/1/orders" -Method Get
-```
-
-In the locally verified run, checkout created **order #1** with total **1999.98**, and the product stock changed from **10 to 8**. The order response's `items: 1` represents one order line containing two units.
-
-## Automated tests
-
-Run:
+## Tests and CI
 
 ```bash
 mvn clean test
 ```
 
-The `OrderServiceTest` suite uses Mockito to isolate service logic from the database. Its 10 tests cover:
+**Verified locally on October 27, 2026:** 25 automated tests passed, zero failures/errors, including service unit tests, controller tests, H2 repository integration tests, exception handling, authentication service tests, and security integration tests.
 
-- Rejecting empty-cart checkout
-- Rejecting cart additions exceeding available stock
-- Rejecting zero and negative quantities
-- Rejecting missing customers and products during cart additions
-- Successfully adding an item to a cart
-- Rejecting checkout with insufficient inventory
-- Successfully creating an order, calculating the total, updating stock, and clearing the cart
-- Rejecting checkout for a missing customer
+GitHub Actions runs Maven clean/test on pushes and pull requests. A successful CI run was confirmed on October 27, 2026.
 
-**Locally observed result (October 27, 2026):** `Tests run: 10, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS`.
+## Order-history optimization
 
-These are unit tests, not database-backed integration tests or concurrency tests.
+Order history is filtered in SQL rather than loading all orders into Java. The entity declares an index on `(customer_id, created_at DESC)`; paged results sort by creation date and ID descending.
 
-## Order-history query optimization
+In an **isolated** 10,000-order MySQL benchmark (October 27, 2026), the observed three-run average was 0.330 ms using a customer-ID index plus sorting versus 0.144 ms with the composite index: about **56.5% lower SQL execution time** in this small sample. This is **not** a production or end-to-end API latency claim.
 
-The customer order-history endpoint now filters by customer in the repository instead of loading every order and filtering in Java. The `CustomerOrder` entity also declares a composite index on `(customer_id, created_at DESC)` to support filtering and descending date order. Verify index creation in MySQL after application startup; schema updates depend on the configured Hibernate DDL behavior.
+## Current limitations
 
-**Isolated local benchmark (October 27, 2026):** In a separate `ecommerce_benchmark` database containing 100 customers and 10,000 orders, MySQL `EXPLAIN ANALYZE` reported:
+- Local-only validation; not hardened or deployed publicly
+- No admin role yet; product writes are currently blocked by authorization
+- Replace Hibernate `ddl-auto=update` with versioned migrations (e.g., Flyway)
+- Add concurrency and real-MySQL integration tests, and expand DTO usage
+- Use dedicated application DB credentials, managed secrets, and production deployment controls before hosting publicly
 
-| Query / index strategy | Observed execution time |
-| --- | --- |
-| Full table scan, all 10,000 orders | 4.57 ms (single run) |
-| Customer-ID index, 100 matching orders | 0.261 ms (single run) |
-| Customer-ID index plus sort, three-run average | 0.330 ms |
-| Composite customer/date index, three-run average | 0.144 ms |
-
-The composite index removed the explicit sorting step and reduced **observed query execution time by approximately 56.5%** compared with the single-column index in the three-run sample. This is a small local SQL benchmark, **not** an API latency or production performance claim. The benchmark database is separate from `ecommerce_db`.
-
-## Known limitations and future improvements
-
-- No authentication or authorization; do not expose the API publicly
-- Add Flyway migrations instead of relying on `ddl-auto=update`
-- Add integration tests with a real database and concurrency tests for simultaneous checkout
-- Improve error response consistency and HTTP status handling
-- Introduce request/response DTOs instead of exposing persistence entities directly
-- Add pagination, cart item update/removal, and OpenAPI documentation
-- Add pagination and database-backed integration tests for order-history queries
-
-**Security note:** This is a learning/portfolio project. Use only test customer data and local development credentials.
+Use test data only. This repository is an interview/learning portfolio project.
