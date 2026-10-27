@@ -10,6 +10,9 @@ import org.springframework.test.context.TestPropertySource;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,6 +50,27 @@ class CustomerOrderRepositoryIntegrationTest {
     void returnsEmptyListForCustomerWithNoOrders() {
         Customer customer = customers.save(new Customer("No Orders", "empty-integration@example.com"));
         assertTrue(orders.findByCustomer_IdOrderByCreatedAtDesc(customer.id).isEmpty());
+    }
+
+    @Test
+    void paginatesCustomerOrdersNewestFirstWithoutOtherCustomers() {
+        Customer first = customers.save(new Customer("Paged First", "paged-first@example.com"));
+        Customer second = customers.save(new Customer("Paged Second", "paged-second@example.com"));
+        saveOrder(first, "2026-02-01T10:00:00Z", "10.00");
+        saveOrder(first, "2026-02-02T10:00:00Z", "20.00");
+        saveOrder(first, "2026-02-03T10:00:00Z", "30.00");
+        saveOrder(second, "2026-02-04T10:00:00Z", "40.00");
+
+        Sort sort = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+        Page<CustomerOrder> firstPage = orders.findByCustomer_Id(first.id, PageRequest.of(0, 2, sort));
+        Page<CustomerOrder> secondPage = orders.findByCustomer_Id(first.id, PageRequest.of(1, 2, sort));
+
+        assertEquals(3, firstPage.getTotalElements());
+        assertEquals(2, firstPage.getContent().size());
+        assertEquals(new BigDecimal("30.00"), firstPage.getContent().get(0).total);
+        assertEquals(new BigDecimal("20.00"), firstPage.getContent().get(1).total);
+        assertEquals(1, secondPage.getContent().size());
+        assertEquals(new BigDecimal("10.00"), secondPage.getContent().get(0).total);
     }
 
     private void saveOrder(Customer customer, String createdAt, String total) {
