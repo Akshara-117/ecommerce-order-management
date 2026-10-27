@@ -39,23 +39,28 @@ class SecurityConfigIntegrationTest {
         mvc.perform(get("/api/products")).andExpect(status().isOk());
     }
 
-    @Test void productMutationIsDenied() throws Exception {
+    @Test void anonymousProductMutationIsUnauthorized() throws Exception {
         mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\"Nope\",\"price\":1,\"stock\":1}"))
-            .andExpect(status().isForbidden());
+            .andExpect(status().isUnauthorized());
     }
 
     @Test void customerCannotReadAnotherCustomersOrders() throws Exception {
-        Customer customer = customers.save(new Customer("Security Test", "security-test@example.com"));
-        credentials.save(new CustomerCredential(customer, new BCryptPasswordEncoder().encode("password123")));
+        String email = "security-test-" + java.util.UUID.randomUUID() + "@example.com";
+        String registration = "{\"name\":\"Security Test\",\"email\":\"" + email + "\",\"password\":\"password123\"}";
+        String registered = mvc.perform(post("/api/auth/register")
+            .contentType(MediaType.APPLICATION_JSON).content(registration))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long customerId = new com.fasterxml.jackson.databind.ObjectMapper()
+            .readTree(registered).get("customerId").asLong();
         String token = com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
             .readTree(mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"security-test@example.com\",\"password\":\"password123\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
             .get("accessToken").asText();
-        mvc.perform(get("/api/customers/" + customer.id + "/orders")
+        mvc.perform(get("/api/customers/" + customerId + "/orders")
             .header("Authorization", "Bearer " + token)).andExpect(status().isOk());
-        mvc.perform(get("/api/customers/" + (customer.id + 1) + "/orders")
+        mvc.perform(get("/api/customers/" + (customerId + 1) + "/orders")
             .header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
     }
 }
