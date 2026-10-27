@@ -6,6 +6,9 @@ import com.portfolio.ecommerce.repository.*;
 import com.portfolio.ecommerce.service.*;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import java.util.*;
 
 @RestController
@@ -72,6 +75,26 @@ public class StoreController {
     public Map<String, Object> checkout(@PathVariable Long id) {
         CustomerOrder order = service.checkout(id);
         return Map.of("orderId", order.id, "total", order.total, "items", order.lines.size());
+    }
+
+    // Opt-in paginated endpoint; the existing /orders response remains backward compatible.
+    @GetMapping("/customers/{id}/orders/paged")
+    public Page<Map<String, Object>> pagedOrders(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "page must be >= 0 and size must be between 1 and 100");
+        }
+        PageRequest request = PageRequest.of(page, size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        return orders.findByCustomer_Id(id, request)
+                .map(o -> Map.<String, Object>of(
+                        "orderId", o.id,
+                        "total", o.total,
+                        "createdAt", o.createdAt));
     }
 
     @GetMapping("/customers/{id}/orders")
