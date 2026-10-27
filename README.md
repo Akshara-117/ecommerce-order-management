@@ -1,49 +1,168 @@
 # E-Commerce Order Management System
 
-A learning-focused **Java 17 / Spring Boot / MySQL** REST backend for products, customers, shopping carts, checkout and inventory updates. Original implementation prepared as a portfolio starter; extend and test it before claiming production readiness.
+A Java 17 and Spring Boot REST API for managing products, customers, shopping carts, orders, and inventory with MySQL.
+
+> **Project status:** Working local portfolio backend. The purchase flow was manually verified against a running MySQL instance on October 27, 2026, and 10 JUnit/Mockito unit tests passed locally. This is not a production-ready or publicly deployed service.
+
+## Tech stack
+
+- **Backend:** Java 17, Spring Boot 3.3.5, Spring Web
+- **Persistence:** Spring Data JPA / Hibernate, MySQL 8
+- **Validation:** Jakarta Bean Validation
+- **Testing:** JUnit 5, Mockito, Maven
+- **Optional local database:** Docker Compose with MySQL 8.4
+
+## Features
+
+- Create, list, retrieve, update, and delete products
+- Register customers with validated name and email
+- Add products to a customer's cart with quantity and stock checks
+- Check out a cart, calculate order totals, and reduce inventory
+- Clear cart items after successful checkout
+- Retrieve basic customer order history
+- Transactional checkout with `@Transactional`; product entity versioning for optimistic-locking support
+
+## Architecture
+
+```text
+HTTP Client (PowerShell / Postman / curl)
+               |
+               v
+     StoreController (/api)
+               |
+               v
+    OrderService (business rules)
+               |
+               v
+   Spring Data JPA Repositories
+               |
+               v
+          MySQL Database
+```
+
+Product and customer endpoints also use repositories directly from the controller. Entity objects are currently returned directly in API responses.
 
 ## Requirements
-- JDK 17+, Maven 3.9+, Docker Compose (or a running MySQL database)
+
+- JDK 17+
+- Maven 3.9+
+- MySQL server **or** Docker Compose
 
 ## Run locally
+
+### Option A: Existing MySQL server (Windows PowerShell)
+
+Create an empty database with your MySQL client:
+
+```sql
+CREATE DATABASE IF NOT EXISTS ecommerce_db;
+```
+
+In PowerShell, from the folder containing `pom.xml`, set connection details **for the current terminal session**:
+
+```powershell
+$env:DB_URL = "jdbc:mysql://localhost:3306/ecommerce_db"
+$env:DB_USER = "root"
+$env:DB_PASSWORD = Read-Host "Enter MySQL password"
+mvn spring-boot:run
+```
+
+Use your own database username where appropriate. Do **not** commit passwords or local environment files to GitHub.
+
+### Option B: Docker Compose
+
+If Docker Desktop is installed and port 3306 is free:
+
 ```bash
 docker compose up -d
 mvn spring-boot:run
 ```
-The API starts at `http://localhost:8080`. MySQL settings can be overridden with `DB_URL`, `DB_USER`, `DB_PASSWORD`.
 
-## Try it
-```bash
-curl -X POST http://localhost:8080/api/products -H 'Content-Type: application/json' -d '{"name":"Keyboard","price":49.99,"stock":10}'
-curl -X POST http://localhost:8080/api/customers -H 'Content-Type: application/json' -d '{"name":"Demo","email":"demo@example.com"}'
-curl -X POST http://localhost:8080/api/customers/1/cart -H 'Content-Type: application/json' -d '{"productId":1,"quantity":2}'
-curl -X POST http://localhost:8080/api/customers/1/checkout
+The Compose configuration provides a local development MySQL database named `ecommerce` with matching default credentials in `application.properties`. These are **development-only example credentials** and must not be used for a public deployment.
+
+The API listens on **http://localhost:8080**. The root URL `/` is not mapped; use `/api/products` to check the API.
+
+## API reference
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/products` | List products |
+| POST | `/api/products` | Create product |
+| GET | `/api/products/{id}` | Retrieve product |
+| PUT | `/api/products/{id}` | Update product |
+| DELETE | `/api/products/{id}` | Delete product |
+| POST | `/api/customers` | Register customer |
+| GET | `/api/customers/{id}/cart` | View cart |
+| POST | `/api/customers/{id}/cart` | Add cart item |
+| POST | `/api/customers/{id}/checkout` | Place order |
+| GET | `/api/customers/{id}/orders` | View order history |
+
+### Example: End-to-end purchase flow (PowerShell)
+
+Run these commands while the server is running. The IDs below assume a fresh database; use IDs returned by your API otherwise.
+
+**1. Create a product**
+
+```powershell
+$product = @{ name = "Laptop"; price = 999.99; stock = 10 } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8080/api/products" -Method Post -ContentType "application/json" -Body $product
 ```
 
-## Endpoints
-| Method | Path | Description |
-|---|---|---|
-| GET / POST | `/api/products` | List / create products |
-| GET / PUT / DELETE | `/api/products/{id}` | Read / update / delete a product |
-| POST | `/api/customers` | Create customer |
-| GET / POST | `/api/customers/{id}/cart` | View / add cart items |
-| POST | `/api/customers/{id}/checkout` | Place order, deduct stock, clear cart |
-| GET | `/api/customers/{id}/orders` | Basic order history |
+**2. Register a customer**
 
-## Architecture
-Controller → Service → Spring Data JPA repositories → MySQL. Checkout is transactional, prices are stored as `BigDecimal`, and inventory uses JPA optimistic locking (`@Version`) to detect concurrent writes.
-
-## Tests
-```bash
-mvn test
+```powershell
+$customer = @{ name = "Test Customer"; email = "testcustomer@example.com" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8080/api/customers" -Method Post -ContentType "application/json" -Body $customer
 ```
-Includes unit tests for empty carts and insufficient inventory. **Not yet run in this delivery environment.**
 
-## Next improvements
-- Add Spring Security authentication/authorization and protect all write endpoints
-- Replace JPA `ddl-auto=update` with Flyway migrations
-- Add pagination, cart item update/remove, proper 404 responses, API DTOs, and OpenAPI docs
-- Add integration tests with Testcontainers, concurrency tests, CI, and production-safe configuration
-- Avoid exposing persistence entities directly from controllers
+**3. Add two units to the cart**
 
-**Important:** This is a portfolio starter, not a deployed production system. No authentication is implemented; do not expose it publicly or use real customer data.
+```powershell
+$cart = @{ productId = 1; quantity = 2 } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8080/api/customers/1/cart" -Method Post -ContentType "application/json" -Body $cart
+```
+
+**4. Check out and verify inventory**
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/api/customers/1/checkout" -Method Post
+Invoke-RestMethod -Uri "http://localhost:8080/api/products/1" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8080/api/customers/1/orders" -Method Get
+```
+
+In the locally verified run, checkout created **order #1** with total **1999.98**, and the product stock changed from **10 to 8**. The order response's `items: 1` represents one order line containing two units.
+
+## Automated tests
+
+Run:
+
+```bash
+mvn clean test
+```
+
+The `OrderServiceTest` suite uses Mockito to isolate service logic from the database. Its 10 tests cover:
+
+- Rejecting empty-cart checkout
+- Rejecting cart additions exceeding available stock
+- Rejecting zero and negative quantities
+- Rejecting missing customers and products during cart additions
+- Successfully adding an item to a cart
+- Rejecting checkout with insufficient inventory
+- Successfully creating an order, calculating the total, updating stock, and clearing the cart
+- Rejecting checkout for a missing customer
+
+**Locally observed result (October 27, 2026):** `Tests run: 10, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS`.
+
+These are unit tests, not database-backed integration tests or concurrency tests.
+
+## Known limitations and future improvements
+
+- No authentication or authorization; do not expose the API publicly
+- Add Flyway migrations instead of relying on `ddl-auto=update`
+- Add integration tests with a real database and concurrency tests for simultaneous checkout
+- Improve error response consistency and HTTP status handling
+- Introduce request/response DTOs instead of exposing persistence entities directly
+- Add pagination, cart item update/removal, and OpenAPI documentation
+- Improve order-history query efficiency and avoid in-memory filtering
+
+**Security note:** This is a learning/portfolio project. Use only test customer data and local development credentials.
