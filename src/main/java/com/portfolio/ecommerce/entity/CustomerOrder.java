@@ -3,7 +3,10 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
-@Entity public class CustomerOrder {
+
+@Entity
+@Table(indexes = @Index(name = "idx_customer_order_customer_created", columnList = "customer_id, created_at DESC"))
+public class CustomerOrder {
  @Id @GeneratedValue(strategy=GenerationType.IDENTITY) public Long id;
  @ManyToOne(optional=false) public Customer customer;
  public Instant createdAt=Instant.now();
