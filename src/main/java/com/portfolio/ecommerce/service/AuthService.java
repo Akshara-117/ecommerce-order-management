@@ -39,7 +39,7 @@ public class AuthService {
     @Transactional
     public Map<String, Object> register(RegisterRequest request) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
-        if (customers.findAll().stream().anyMatch(c -> c.email.equalsIgnoreCase(email))) {
+        if (customers.findByEmailIgnoreCase(email).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }
         Customer customer = customers.save(new Customer(request.name(), email));
@@ -50,8 +50,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public Map<String, Object> login(LoginRequest request) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
-        Customer customer = customers.findAll().stream()
-                .filter(c -> c.email.equalsIgnoreCase(email)).findFirst()
+        Customer customer = customers.findByEmailIgnoreCase(email)
                 .orElseThrow(this::invalidCredentials);
         CustomerCredential credential = credentials.findById(customer.id)
                 .orElseThrow(this::invalidCredentials);
